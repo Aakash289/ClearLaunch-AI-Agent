@@ -168,7 +168,7 @@ The CSV file contain 9 product codes covering all 3 outcomes.
 
 ### Prerequisites
 - Python 3.8 or higher
-- Anthropic API key — get one at [console.anthropic.com](https://console.anthropic.com)
+- Anthropic API key 
 
 ### Install
 

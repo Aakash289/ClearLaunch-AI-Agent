@@ -1,12 +1,8 @@
 # ClearLaunch AI Agent
 
-> A 5-step autonomous AI agent that audits retail products before launch and delivers a **Safe to Launch / Launch with Caution / Not Safe to Launch** decision — powered by Python, Streamlit, and the Anthropic Claude API.
-
----
-
 ## The Problem
 
-Every retailer launches hundreds of products per year. Before a product goes live, five things must be true simultaneously — enough stock, complete product data, competitive pricing, and a live product page. In most companies these checks are done **manually by different teams** with no single system owning the full picture.
+Every retailer launches hundreds of products per year. Before a product goes live, these things must be true simultaneously — enough stock, complete product data, competitive pricing, and a live product page. In most companies these checks are done **manually by different teams** with no single system owning the full picture.
 
 The result: products launch broken.
 
@@ -24,58 +20,33 @@ The result: products launch broken.
 
 **ClearLaunch replaces the fragmented manual checklist with a single agent that audits any product in under 30 seconds.**
 
----
+## How the Agent Works
 
-## Architecture
+When a product code is entered and the Run Agent button is clicked, the agent executes five steps in sequence. Each step runs independently, checks one specific thing, and passes its result forward. The steps do not skip, do not assume, and do not depend on each other, every check runs regardless of what the previous one found.
 
-```
-ClearLaunch AI Agent
-│
-├── app.py                          # Main application — agent logic and UI
-│
-├── Data Inputs
-│   ├── inventory.csv               # Warehouse stock levels per product
-│   │   ├── sku
-│   │   ├── warehouse_id
-│   │   ├── qty_on_hand
-│   │   └── launch_threshold
-│   │
-│   ├── products.csv                # Product attributes and content data
-│   │   ├── sku
-│   │   ├── name
-│   │   ├── category
-│   │   ├── price
-│   │   ├── description
-│   │   ├── image_count
-│   │   ├── has_size_chart
-│   │   └── weight_kg
-│   │
-│   ├── pricing.csv                 # Product prices + category peer data
-│   │   ├── sku
-│   │   ├── name
-│   │   ├── category
-│   │   ├── price
-│   │   └── cost
-│   │
-│   └── page_status.csv             # Product page URL and HTTP status
-│       ├── sku
-│       ├── page_url
-│       └── http_status
-│
-├── Agent Steps
-│   ├── Step 1 — Inventory Check    # Reads inventory.csv
-│   ├── Step 2 — Data Validation    # Reads products.csv
-│   ├── Step 3 — Pricing Scan       # Reads pricing.csv
-│   ├── Step 4 — Page Verification  # Reads page_status.csv
-│   └── Step 5 — AI Decision        # Calls Claude API → decision + narrative
-│
-└── Output
-    ├── Safe to Launch
-    ├── Launch with Caution
-    └── Not Safe to Launch
-```
+Step 1 — Inventory Check
 
----
+The agent opens inventory.csv and filters all rows matching the product code. A product can be stored across multiple warehouses, so the agent adds up the qty_on_hand values across every warehouse row for that product. It then compares the total against the launch_threshold. If total stock is below the threshold the step fails. If it is at or above the threshold the step passes.
+
+Step 2 — Product Data Validation
+
+The agent opens products.csv and reads the row for that product. It checks required attributes one by one: name, description, image count greater than zero, size chart present, and weight entered. Every attribute that is missing, blank, or zero is added to a list. If the list has two or more items the step fails as a blocking issue. If exactly one item is missing the step raises a warning. If nothing is missing the step passes.
+
+Step 3 — Pricing Conflict Scan
+
+The agent opens pricing.csv and reads the product's price and category. It then filters all other rows in the same category, these are the peer products. It calculates the average price of those peers and measures how far the audited product's price deviates from that average as a percentage. A deviation below 15% passes. Between 15% and 25% raises a warning. Above 25% is a blocking failure.
+
+Step 4 — Page URL Verification
+
+The agent opens page_status.csv and reads the HTTP status code for the product's page URL. A status of 200 means the page is live and accessible to customers, this passes. A status of 301 or 302 means the page is redirecting somewhere else, this raises a warning because the destination may not be correct. Any other status, including 404, means the page cannot be reached, this is a blocking failure.
+
+Step 5 — AI Decision Engine
+
+Once all four checks are complete, the agent bundles every result into a structured prompt and sends it to the Claude API. The prompt includes the product name, product code, and the status and detail message from each of the four steps. Claude counts the number of blocking failures and warnings, applies the decision rule, and writes a 3 to 4 sentence plain-English narrative explaining what it found and what the team should do next. The decision and narrative are returned as JSON and rendered in the interface.
+
+Final Decision
+
+The decision is determined by a strict rule. If any step returned a failure the product is Not Safe to Launch. If no steps failed but one or more raised a warning the product is Launch with Caution. If all four steps passed the product is Safe to Launch. This rule is applied both by Claude in the prompt and by a fallback rule engine in the code in case the API is unavailable.
 
 ## Tech Stack
 
@@ -87,7 +58,6 @@ ClearLaunch AI Agent
 | Business logic | Python 3 |
 | Styling | Custom CSS — dark navy theme |
 
----
 
 ## Project Structure
 
@@ -104,7 +74,6 @@ launch_agent/
 └── requirements.txt        # Python dependencies
 ```
 
----
 
 ## Input Files
 
@@ -122,7 +91,6 @@ One row per product per warehouse. The agent sums `qty_on_hand` across all wareh
 
 > One product can appear on multiple rows — one per warehouse. The agent adds them all up.
 
----
 
 ### `products.csv`
 One row per product. The agent checks every required attribute for completeness.
@@ -138,8 +106,6 @@ One row per product. The agent checks every required attribute for completeness.
 | `has_size_chart` | Boolean | True if size chart is attached |
 | `weight_kg` | Decimal | Product weight in kilograms |
 
----
-
 ### `pricing.csv`
 Contains the audited products **plus** peer products in the same category. The peer rows are used only to calculate the category average — the agent never audits them directly.
 
@@ -153,8 +119,6 @@ Contains the audited products **plus** peer products in the same category. The p
 
 > This file intentionally has more rows than `products.csv`. Peer rows (e.g. `SKU-P01`) exist as comparison benchmarks only. Minimum 3 peers per category recommended.
 
----
-
 ### `page_status.csv`
 One row per product. Records the HTTP status of the product page.
 
@@ -163,8 +127,6 @@ One row per product. Records the HTTP status of the product page.
 | `sku` | Text | Product identifier — must match `products.csv` |
 | `page_url` | Text | Full product page URL |
 | `http_status` | Integer | HTTP status: 200 = live, 301/302 = redirect, 404 = not found |
-
----
 
 ## Output
 
@@ -175,11 +137,9 @@ After all 5 steps run, the agent produces:
 3. **AI narrative** — a 3–4 sentence plain-English summary written by Claude, ready to share
 4. **Audit summary** — metrics showing checks run, blocking issues, warnings, and decision
 
----
-
 ## Test Data
 
-The included CSV files contain 9 product codes covering all 3 outcomes.
+The CSV file contain 9 product codes covering all 3 outcomes.
 
 ### ✅ Safe to Launch
 | Code | Product | Why |
@@ -203,8 +163,6 @@ The included CSV files contain 9 product codes covering all 3 outcomes.
 | `SKU-3003` | Leather Weekend Bag | Low stock + missing images + HTTP 404 |
 
 **Recommended demo sequence:** `SKU-1001` → `SKU-2001` → `SKU-3001` — shows all 3 outcomes in under 2 minutes.
-
----
 
 ## Setup & Installation
 
@@ -238,12 +196,6 @@ If the command is not found:
 python -m streamlit run app.py
 ```
 
-To stop:
-
-```bash
-Ctrl + C
-```
-
 ### Usage
 
 1. Upload all 4 CSV files in the left sidebar
@@ -251,8 +203,6 @@ Ctrl + C
 3. Type a product code into the input box (e.g. `SKU-1001`)
 4. Click **Run Agent**
 5. Watch the 5 steps execute and read the decision + narrative
-
----
 
 ## Analytics Behind Each Step
 
@@ -266,8 +216,6 @@ Ctrl + C
 
 **AI Synthesis** — all 4 results are structured into a prompt and sent to Claude. The model counts blocking vs warning issues, applies the decision rule, and writes a stakeholder-ready narrative in JSON format. Falls back to rule-based logic if the API is unavailable.
 
----
-
 ## Conclusion
 
 ClearLaunch AI Agent replaces a fragmented, multi-team, multi-day manual process with a single autonomous workflow that runs in 30 seconds. It applies the same business rules consistently on every audit — no variation based on analyst experience or time pressure.
@@ -276,6 +224,5 @@ The AI narrative layer bridges raw data outputs and human decision-making. Inste
 
 **Built to demonstrate:** multi-step agent architecture, pandas data processing, LLM API integration, structured prompt engineering, Streamlit UI development, and enterprise-grade business logic — applied to a real problem that retail companies face every day.
 
----
 
 *Built with Python · Streamlit · pandas · Anthropic Claude API*
